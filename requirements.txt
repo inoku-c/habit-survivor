@@ -3,3 +3,6 @@ pandas>=2.0.0
 numpy>=1.24.0
 plotly>=5.18.0
 lifelines>=0.27.0
+autograd>=1.6.2
+formulaic>=0.6.0
+matplotlib>=3.7.0
