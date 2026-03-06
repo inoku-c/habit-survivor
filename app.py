@@ -12,6 +12,7 @@ import plotly.express as px
 from lifelines import KaplanMeierFitter, CoxPHFitter
 from lifelines.statistics import logrank_test
 import warnings
+import io
 warnings.filterwarnings("ignore")
 
 st.set_page_config(page_title="習慣サバイバー", page_icon="⚰️", layout="wide")
@@ -97,6 +98,12 @@ def generate_demo_data():
             })
     return pd.DataFrame(records)
 
+# ─── セッション状態の初期化 ─────────────────
+if "df" not in st.session_state:
+    st.session_state.df = generate_demo_data()
+if "user_added_count" not in st.session_state:
+    st.session_state.user_added_count = 0
+
 # ─── ヘッダー ────────────────────────────────
 st.markdown('<div class="main-title">⚰️ 習慣サバイバー</div>', unsafe_allow_html=True)
 st.markdown('<div class="subtitle">生存分析が「習慣の寿命」を暴く — 最新論文エビデンス搭載</div>', unsafe_allow_html=True)
@@ -112,20 +119,41 @@ with st.sidebar:
     st.markdown("## ⚙️ 設定")
     tab_mode = st.radio("モード", ["📊 デモデータで体験", "✏️ 自分のデータを入力"])
     st.markdown("---")
+
+    # データエクスポート
+    st.markdown("### 📥 データエクスポート")
+    csv_buffer = io.StringIO()
+    st.session_state.df.to_csv(csv_buffer, index=False, encoding="utf-8-sig")
+    st.download_button(
+        label="📊 データをCSVでダウンロード",
+        data=csv_buffer.getvalue().encode("utf-8-sig"),
+        file_name="habit_survivor_data.csv",
+        mime="text/csv",
+        use_container_width=True,
+    )
+    if st.session_state.user_added_count > 0:
+        st.caption(f"あなたのデータ: {st.session_state.user_added_count}件追加済み")
+    if st.button("🔄 データをリセット", use_container_width=True):
+        st.session_state.df = generate_demo_data()
+        st.session_state.user_added_count = 0
+        st.success("データをリセットしました")
+        st.rerun()
+
+    st.markdown("---")
     st.markdown("### 📄 主要論文")
     st.info("**Singh et al. (2024)**\nTime to Form a Habit: A Systematic Review and Meta-Analysis\n\n*Healthcare*, 12(23), 2488\n\nn=2,601 · 20研究 · 南オーストラリア大学")
     st.markdown("---")
     st.markdown("### 🔬 使用手法")
     st.markdown("- カプランマイヤー法\n- ログランク検定\n- コックス比例ハザード回帰")
 
-df = generate_demo_data()
+df = st.session_state.df
 
 # ─── データ入力モード ─────────────────────────
 if tab_mode == "✏️ 自分のデータを入力":
     st.markdown("## ✏️ あなたの習慣データを入力")
     c1, c2, c3 = st.columns(3)
     with c1:
-        habit_name  = st.text_input("習慣名", "毎日筋トレ 💪")
+        habit_name  = st.text_input("習慣名", "毎日筋トレ 💪", max_chars=50)
         duration    = st.number_input("継続した日数", 1, 365, 21)
         still_going = st.checkbox("今もまだ続けている（打ち切り）", False)
     with c2:
@@ -137,16 +165,23 @@ if tab_mode == "✏️ 自分のデータを入力":
         identity   = st.selectbox("「自分はこれをする人だ」と思っている", ["はい", "いいえ"])
         streak     = st.selectbox("連続記録が途切れたことがある", ["はい", "いいえ"])
     if st.button("📊 分析する", type="primary", use_container_width=True):
-        df = pd.concat([df, pd.DataFrame([{
-            "習慣": habit_name, "継続日数": duration,
-            "脱落": 0 if still_going else 1,
-            "動機": "内発的" if "内発的" in motivation else "外発的",
-            "サポート": support, "難易度": difficulty,
-            "実施タイミング": timing,
-            "アイデンティティ統合": 1 if identity == "はい" else 0,
-            "連続記録が途切れた": 1 if streak == "はい" else 0,
-        }])], ignore_index=True)
-        st.success(f"「{habit_name}」を追加しました！")
+        habit_name_stripped = habit_name.strip()
+        if not habit_name_stripped:
+            st.error("習慣名を入力してください。")
+        else:
+            new_row = pd.DataFrame([{
+                "習慣": habit_name_stripped, "継続日数": duration,
+                "脱落": 0 if still_going else 1,
+                "動機": "内発的" if "内発的" in motivation else "外発的",
+                "サポート": support, "難易度": difficulty,
+                "実施タイミング": timing,
+                "アイデンティティ統合": 1 if identity == "はい" else 0,
+                "連続記録が途切れた": 1 if streak == "はい" else 0,
+            }])
+            st.session_state.df = pd.concat([st.session_state.df, new_row], ignore_index=True)
+            st.session_state.user_added_count += 1
+            df = st.session_state.df
+            st.success(f"「{habit_name_stripped}」を追加しました！（合計追加: {st.session_state.user_added_count}件）")
     st.markdown("---")
 
 # ─── タブ ────────────────────────────────────
@@ -288,10 +323,24 @@ with tab2:
         st.plotly_chart(fig, use_container_width=True)
 
         st.markdown("### ⏱️ 中央生存時間と論文値の比較")
-        st.dataframe(pd.DataFrame(median_data).set_index("習慣"), use_container_width=True)
+        median_df = pd.DataFrame(median_data).set_index("習慣")
+        st.dataframe(median_df, use_container_width=True)
+
+        # KM結果のエクスポート
+        csv_km = io.StringIO()
+        median_df.to_csv(csv_km, encoding="utf-8-sig")
+        st.download_button(
+            "📥 KM結果をCSVでダウンロード",
+            data=csv_km.getvalue().encode("utf-8-sig"),
+            file_name="km_results.csv",
+            mime="text/csv",
+        )
+
         st.markdown(
             '<div class="paper-box">📄 <b>金色帯：</b> Singh et al. (2024) の科学的中央値（59〜66日）。'
             '点線21日は根拠のない俗説。</div>', unsafe_allow_html=True)
+    else:
+        st.info("表示する習慣を1つ以上選択してください。")
 
 # ══════════════════════════════
 # TAB 3: ログランク検定
@@ -300,54 +349,58 @@ with tab3:
     st.markdown("## 🔬 ログランク検定")
     st.markdown("2つの習慣の「寿命」に統計的に有意な差があるかを検定します。")
 
-    c_a, c_b = st.columns(2)
-    with c_a: habit_a = st.selectbox("習慣A", df["習慣"].unique(), index=0)
-    with c_b: habit_b = st.selectbox("習慣B", df["習慣"].unique(), index=1)
-
-    if habit_a != habit_b:
-        sub_a = df[df["習慣"] == habit_a]
-        sub_b = df[df["習慣"] == habit_b]
-        result = logrank_test(sub_a["継続日数"], sub_b["継続日数"], sub_a["脱落"], sub_b["脱落"])
-        p_val, stat = result.p_value, result.test_statistic
-
-        c1, c2, c3 = st.columns(3)
-        for col, val, lbl in [
-            (c1, f"{p_val:.4f}", "p値"),
-            (c2, f"{stat:.2f}", "検定統計量"),
-            (c3, "有意差あり ✅" if p_val < 0.05 else "有意差なし ❌", "有意水準 α=0.05"),
-        ]:
-            with col:
-                st.markdown(
-                    f'<div class="metric-card">'
-                    f'<div class="metric-value" style="font-size:{"2.5rem" if len(val)<6 else "1.4rem"};">{val}</div>'
-                    f'<div class="metric-label">{lbl}</div>'
-                    f'</div>', unsafe_allow_html=True)
-
-        fig2 = go.Figure()
-        kmf2 = KaplanMeierFitter()
-        for habit, color in [(habit_a, "#667eea"), (habit_b, "#f093fb")]:
-            sub = df[df["習慣"] == habit]
-            kmf2.fit(sub["継続日数"], sub["脱落"])
-            t = kmf2.survival_function_.index
-            s = kmf2.survival_function_.iloc[:, 0].values
-            fig2.add_trace(go.Scatter(x=t, y=s, mode="lines", name=habit,
-                                      line=dict(color=color, width=3, shape="hv")))
-        fig2.add_hline(y=0.5, line_dash="dash", line_color="red")
-        fig2.add_vrect(x0=59, x1=66, fillcolor="gold", opacity=0.13, line_width=0)
-        fig2.update_layout(
-            title=f"{habit_a} vs {habit_b}",
-            xaxis_title="日数", yaxis_title="継続率",
-            yaxis=dict(tickformat=".0%", range=[0, 1.05]),
-            height=400, plot_bgcolor="white", paper_bgcolor="white",
-        )
-        st.plotly_chart(fig2, use_container_width=True)
-
-        cls = "good-box" if p_val < 0.05 else "insight-box"
-        txt = "統計的に有意な差があります（α=0.05）。" if p_val < 0.05 else "統計的な有意差は検出されませんでした。"
-        st.markdown(f'<div class="{cls}">{"✅" if p_val < 0.05 else "❌"} <b>p = {p_val:.4f}</b> — {txt}</div>',
-                    unsafe_allow_html=True)
+    habits_unique = df["習慣"].unique().tolist()
+    if len(habits_unique) < 2:
+        st.warning("ログランク検定には2種類以上の習慣データが必要です。")
     else:
-        st.warning("異なる2つの習慣を選択してください。")
+        c_a, c_b = st.columns(2)
+        with c_a: habit_a = st.selectbox("習慣A", habits_unique, index=0)
+        with c_b: habit_b = st.selectbox("習慣B", habits_unique, index=min(1, len(habits_unique)-1))
+
+        if habit_a != habit_b:
+            sub_a = df[df["習慣"] == habit_a]
+            sub_b = df[df["習慣"] == habit_b]
+            result = logrank_test(sub_a["継続日数"], sub_b["継続日数"], sub_a["脱落"], sub_b["脱落"])
+            p_val, stat = result.p_value, result.test_statistic
+
+            c1, c2, c3 = st.columns(3)
+            for col, val, lbl in [
+                (c1, f"{p_val:.4f}", "p値"),
+                (c2, f"{stat:.2f}", "検定統計量"),
+                (c3, "有意差あり ✅" if p_val < 0.05 else "有意差なし ❌", "有意水準 α=0.05"),
+            ]:
+                with col:
+                    st.markdown(
+                        f'<div class="metric-card">'
+                        f'<div class="metric-value" style="font-size:{"2.5rem" if len(val)<6 else "1.4rem"};">{val}</div>'
+                        f'<div class="metric-label">{lbl}</div>'
+                        f'</div>', unsafe_allow_html=True)
+
+            fig2 = go.Figure()
+            kmf2 = KaplanMeierFitter()
+            for habit, color in [(habit_a, "#667eea"), (habit_b, "#f093fb")]:
+                sub = df[df["習慣"] == habit]
+                kmf2.fit(sub["継続日数"], sub["脱落"])
+                t = kmf2.survival_function_.index
+                s = kmf2.survival_function_.iloc[:, 0].values
+                fig2.add_trace(go.Scatter(x=t, y=s, mode="lines", name=habit,
+                                          line=dict(color=color, width=3, shape="hv")))
+            fig2.add_hline(y=0.5, line_dash="dash", line_color="red")
+            fig2.add_vrect(x0=59, x1=66, fillcolor="gold", opacity=0.13, line_width=0)
+            fig2.update_layout(
+                title=f"{habit_a} vs {habit_b}",
+                xaxis_title="日数", yaxis_title="継続率",
+                yaxis=dict(tickformat=".0%", range=[0, 1.05]),
+                height=400, plot_bgcolor="white", paper_bgcolor="white",
+            )
+            st.plotly_chart(fig2, use_container_width=True)
+
+            cls = "good-box" if p_val < 0.05 else "insight-box"
+            txt = "統計的に有意な差があります（α=0.05）。" if p_val < 0.05 else "統計的な有意差は検出されませんでした。"
+            st.markdown(f'<div class="{cls}">{"✅" if p_val < 0.05 else "❌"} <b>p = {p_val:.4f}</b> — {txt}</div>',
+                        unsafe_allow_html=True)
+        else:
+            st.warning("異なる2つの習慣を選択してください。")
 
 # ══════════════════════════════
 # TAB 4: コックス回帰
@@ -412,6 +465,16 @@ with tab4:
     disp["★"] = disp["p値"].apply(lambda p: "★★★" if p < 0.001 else "★★" if p < 0.01 else "★" if p < 0.05 else "n.s.")
     st.dataframe(disp.style.format({"HR": "{:.3f}", "95%CI 下限": "{:.3f}", "95%CI 上限": "{:.3f}", "p値": "{:.4f}"}),
                  use_container_width=True)
+
+    # Cox回帰結果のエクスポート
+    csv_cox = io.StringIO()
+    disp.to_csv(csv_cox, encoding="utf-8-sig")
+    st.download_button(
+        "📥 Cox回帰結果をCSVでダウンロード",
+        data=csv_cox.getvalue().encode("utf-8-sig"),
+        file_name="cox_regression_results.csv",
+        mime="text/csv",
+    )
 
     st.markdown(
         '<div class="paper-box">📄 <b>論文との対応：</b> HR &gt; 1 は脱落リスク増加（赤）、&lt; 1 は保護的（緑）。'
@@ -532,6 +595,10 @@ with tab5:
             st.markdown("**③ 自己定義の更新：** 毎朝「私は○○をする人間だ」と声に出す。アイデンティティベースの目標設定は継続率32%向上。")
         if pred_sup == "なし":
             st.markdown("**④ アカウンタビリティパートナー：** 誰かに宣言するだけで継続率が有意に改善。SNSでの公言も有効。")
+    else:
+        st.markdown(
+            '<div class="good-box">✅ <b>すべての因子が最適です！</b> このまま継続してください。科学的エビデンスに基づくと、あなたの習慣は高い確率で定着します。</div>',
+            unsafe_allow_html=True)
 
     st.markdown(
         '<div class="paper-box">📄 予測確率はカプランマイヤー法による条件付き生存確率。'
