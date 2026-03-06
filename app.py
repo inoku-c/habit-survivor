@@ -1,5 +1,5 @@
 """
-🩺 健康寿命サバイバー v2.0
+🩺 健康寿命サバイバー v3.0
 生存分析で「健康寿命」を科学的に予測するアプリ
 厚生労働省データ・疫学研究のエビデンスに基づく
 """
@@ -13,9 +13,203 @@ from lifelines import KaplanMeierFitter, CoxPHFitter
 from lifelines.statistics import logrank_test
 import warnings
 import io
+import hashlib
 warnings.filterwarnings("ignore")
 
 st.set_page_config(page_title="健康寿命サバイバー", page_icon="🩺", layout="wide")
+
+# ─── プラン設定 ──────────────────────────────────────────────────────────────
+PLANS = {
+    "free": {
+        "name": "無料プラン",
+        "price": "¥0",
+        "tabs": [0],          # Tab index: 0=evidence only
+        "features": ["疫学エビデンス閲覧", "日本・国際統計グラフ", "8大リスク因子の解説"],
+        "locked":   ["生存曲線グループ比較", "コックス回帰分析（多変量）",
+                     "あなたの個人健康寿命予測", "解析手法の数理的詳細", "CSVエクスポート"],
+    },
+    "pro": {
+        "name": "プロプラン",
+        "price": "¥980/月",
+        "tabs": [0, 1, 2, 3, 4],  # All tabs
+        "features": ["無料プランの全機能", "生存曲線グループ比較 + ログランク検定",
+                     "コックス回帰分析（多変量・フォレストプロット）",
+                     "個人健康寿命予測（コックスモデル）",
+                     "解析手法の数理的詳細（LaTeX数式）", "CSVデータエクスポート"],
+        "locked":   [],
+    },
+}
+
+# Stripe 決済リンク（本番では実際のStripe Payment Linkに置き換え）
+STRIPE_PAYMENT_LINK = st.secrets.get("stripe_payment_link", "https://buy.stripe.com/your_link_here")
+
+def _valid_codes() -> set:
+    """st.secrets からアクセスコードを取得（なければデモ用コードを使用）"""
+    try:
+        codes = st.secrets["access_codes"]
+        if isinstance(codes, str):
+            return {c.strip().upper() for c in codes.split(",")}
+        return {str(c).strip().upper() for c in codes}
+    except Exception:
+        return {"HEALTH2024PRO", "DEMO_PRO"}   # デモ用（本番では secrets で管理）
+
+def verify_access_code(code: str) -> bool:
+    return code.strip().upper() in _valid_codes()
+
+# ─── ランディング / 料金ページ ────────────────────────────────────────────────
+def show_landing():
+    st.markdown("""
+    <style>
+        .landing-hero {
+            text-align: center; padding: 3rem 1rem 2rem; margin-bottom: 1rem;
+        }
+        .hero-title {
+            font-size: 3.5rem; font-weight: 900; line-height: 1.1;
+            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+            margin-bottom: 1rem;
+        }
+        .hero-sub { font-size: 1.2rem; color: #555; margin-bottom: 2rem; }
+        .pricing-card {
+            border-radius: 16px; padding: 2rem; text-align: center;
+            box-shadow: 0 8px 30px rgba(0,0,0,0.10); margin: 0.5rem;
+        }
+        .card-free {
+            background: #fff; border: 2px solid #e2e8f0;
+        }
+        .card-pro {
+            background: linear-gradient(160deg, #11998e 0%, #38ef7d 100%);
+            border: none; color: white;
+        }
+        .plan-name { font-size: 1.4rem; font-weight: 800; margin-bottom: 0.5rem; }
+        .plan-price { font-size: 2.8rem; font-weight: 900; margin-bottom: 0.3rem; }
+        .plan-period { font-size: 0.9rem; opacity: 0.75; margin-bottom: 1.5rem; }
+        .feature-item { font-size: 0.95rem; margin: 0.4rem 0; }
+        .badge-popular {
+            background: #f6ad55; color: #744210; font-size: 0.75rem; font-weight: 700;
+            padding: 2px 10px; border-radius: 20px; display: inline-block; margin-bottom: 0.8rem;
+        }
+        .cta-free {
+            background: #edf2f7; color: #2d3748; border: none;
+            padding: 0.8rem 2rem; border-radius: 8px; font-size: 1rem; font-weight: 600;
+            cursor: pointer; width: 100%; margin-top: 1.5rem;
+        }
+        .cta-pro {
+            background: white; color: #11998e; border: none;
+            padding: 0.8rem 2rem; border-radius: 8px; font-size: 1rem; font-weight: 700;
+            cursor: pointer; width: 100%; margin-top: 1.5rem;
+        }
+        .divider { border: none; border-top: 1px solid #e2e8f0; margin: 2rem 0; }
+    </style>
+    """, unsafe_allow_html=True)
+
+    st.markdown("""
+    <div class="landing-hero">
+        <div class="hero-title">🩺 健康寿命サバイバー</div>
+        <div class="hero-sub">
+            生存分析 × 疫学エビデンスで、<b>あなたの健康寿命</b>を科学的に予測する<br>
+            厚生労働省データ・WHO・JPHC Study に基づく国内唯一のインタラクティブ解析ツール
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # ── 料金カード ────────────────────────────────
+    col_free, col_pro = st.columns(2)
+
+    with col_free:
+        st.markdown("""
+        <div class="pricing-card card-free">
+            <div class="plan-name">🌱 無料プラン</div>
+            <div class="plan-price">¥0</div>
+            <div class="plan-period">永久無料</div>
+            <hr style="border-color:#e2e8f0; margin:1rem 0;">
+            <div class="feature-item">✅ 疫学エビデンス閲覧</div>
+            <div class="feature-item">✅ 日本・国際健康寿命統計</div>
+            <div class="feature-item">✅ 8大リスク因子の解説</div>
+            <div class="feature-item" style="color:#aaa;">🔒 生存曲線グループ比較</div>
+            <div class="feature-item" style="color:#aaa;">🔒 コックス回帰分析</div>
+            <div class="feature-item" style="color:#aaa;">🔒 個人健康寿命予測</div>
+            <div class="feature-item" style="color:#aaa;">🔒 解析手法の詳細</div>
+        </div>
+        """, unsafe_allow_html=True)
+        if st.button("無料で始める", key="btn_free", use_container_width=True):
+            st.session_state["plan"] = "free"
+            st.rerun()
+
+    with col_pro:
+        st.markdown("""
+        <div class="pricing-card card-pro">
+            <div class="badge-popular">⭐ 最もご好評</div>
+            <div class="plan-name" style="color:white;">🚀 プロプラン</div>
+            <div class="plan-price" style="color:white;">¥980</div>
+            <div class="plan-period" style="color:rgba(255,255,255,0.8);">/ 月（税込）</div>
+            <hr style="border-color:rgba(255,255,255,0.3); margin:1rem 0;">
+            <div class="feature-item" style="color:white;">✅ 無料プランの全機能</div>
+            <div class="feature-item" style="color:white;">✅ 生存曲線グループ比較</div>
+            <div class="feature-item" style="color:white;">✅ コックス回帰分析（多変量）</div>
+            <div class="feature-item" style="color:white;">✅ 個人健康寿命予測</div>
+            <div class="feature-item" style="color:white;">✅ 解析手法の数理的詳細</div>
+            <div class="feature-item" style="color:white;">✅ CSVデータエクスポート</div>
+        </div>
+        """, unsafe_allow_html=True)
+        st.link_button(
+            "💳 今すぐ購入（Stripe）",
+            url=STRIPE_PAYMENT_LINK,
+            use_container_width=True,
+        )
+
+    st.markdown("<hr class='divider'>", unsafe_allow_html=True)
+
+    # ── アクセスコード入力（購入後） ────────────────
+    st.markdown("#### 🔑 購入済みの方：アクセスコードを入力")
+    col_code, col_submit = st.columns([3, 1])
+    with col_code:
+        code_input = st.text_input(
+            "アクセスコード",
+            placeholder="例：HEALTH2024PRO",
+            label_visibility="collapsed",
+        )
+    with col_submit:
+        if st.button("認証", use_container_width=True, type="primary"):
+            if verify_access_code(code_input):
+                st.session_state["plan"] = "pro"
+                st.session_state["code"] = code_input.upper().strip()
+                st.success("✅ 認証成功！プロプランが有効化されました。")
+                st.rerun()
+            else:
+                st.error("❌ アクセスコードが正しくありません。")
+
+    st.markdown("""
+    <div style="text-align:center;color:#aaa;font-size:0.8rem;margin-top:2rem;">
+        購入後にメールで送付されるアクセスコードを入力してください。<br>
+        お問い合わせ：support@example.com
+    </div>
+    """, unsafe_allow_html=True)
+
+# ─── 認証チェック ─────────────────────────────────────────────────────────────
+if "plan" not in st.session_state:
+    show_landing()
+    st.stop()
+
+CURRENT_PLAN = st.session_state["plan"]
+
+def locked_tab(feature_name: str):
+    """プロプランでのみ使える機能をロック表示"""
+    st.markdown(f"""
+    <div style="text-align:center; padding: 4rem 2rem;">
+        <div style="font-size:4rem;">🔒</div>
+        <div style="font-size:1.5rem; font-weight:700; color:#2d3748; margin:1rem 0;">
+            {feature_name}
+        </div>
+        <div style="color:#718096; margin-bottom:2rem;">
+            この機能はプロプラン限定です。
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    if st.button("🚀 プロプランにアップグレード", type="primary", key=f"upgrade_{feature_name}"):
+        st.session_state["plan"] = None
+        del st.session_state["plan"]
+        st.rerun()
 
 st.markdown("""
 <style>
@@ -216,13 +410,19 @@ def fit_cox_model():
 
 
 # ─── ヘッダー ─────────────────────────────────────────────────────────────────
+plan_badge_color = "#276749" if CURRENT_PLAN == "pro" else "#718096"
+plan_badge_label = "🚀 プロプラン" if CURRENT_PLAN == "pro" else "🌱 無料プラン"
 st.markdown('<div class="main-title">🩺 健康寿命サバイバー</div>', unsafe_allow_html=True)
 st.markdown('<div class="subtitle">生存分析が「健康寿命」の真実を暴く — 疫学研究エビデンス搭載</div>', unsafe_allow_html=True)
 st.markdown(
-    '<div class="data-badge">'
-    '<span style="background:#276749;color:white;padding:3px 14px;border-radius:20px;font-size:0.8rem;font-weight:600;">'
-    '📊 厚生労働省 令和元年(2019)データ · WHO · JPHC Study · JAGES研究 · n=800シミュレーションコホート'
-    '</span></div>', unsafe_allow_html=True)
+    f'<div class="data-badge">'
+    f'<span style="background:#276749;color:white;padding:3px 14px;border-radius:20px;font-size:0.8rem;font-weight:600;">'
+    f'📊 厚生労働省 令和元年(2019)データ · WHO · JPHC Study · JAGES研究 · n=800シミュレーションコホート'
+    f'</span>'
+    f'&nbsp;&nbsp;'
+    f'<span style="background:{plan_badge_color};color:white;padding:3px 14px;border-radius:20px;font-size:0.8rem;font-weight:700;">'
+    f'{plan_badge_label}'
+    f'</span></div>', unsafe_allow_html=True)
 st.markdown(
     '<div class="disclaimer-box">⚠️ <b>注意：</b> '
     '本アプリは疫学研究の手法を学ぶための教育目的シミュレーションです。'
@@ -232,19 +432,44 @@ st.markdown("---")
 
 # ─── サイドバー ───────────────────────────────────────────────────────────────
 with st.sidebar:
+    # ── プラン表示 ──────────────────────────────────
+    if CURRENT_PLAN == "pro":
+        st.markdown(
+            '<div style="background:linear-gradient(135deg,#11998e,#38ef7d);'
+            'color:white;border-radius:10px;padding:0.8rem 1rem;text-align:center;margin-bottom:0.5rem;">'
+            '<b>🚀 プロプラン 有効</b><br><small>全機能が利用可能です</small>'
+            '</div>', unsafe_allow_html=True)
+    else:
+        st.markdown(
+            '<div style="background:#edf2f7;border-radius:10px;padding:0.8rem 1rem;'
+            'text-align:center;margin-bottom:0.5rem;">'
+            '<b>🌱 無料プラン</b><br><small>疫学エビデンスのみ閲覧可</small>'
+            '</div>', unsafe_allow_html=True)
+        if st.button("🚀 プロプランにアップグレード", use_container_width=True, type="primary"):
+            del st.session_state["plan"]
+            st.rerun()
+
+    if st.button("🚪 ログアウト / プラン変更", use_container_width=True):
+        for key in list(st.session_state.keys()):
+            del st.session_state[key]
+        st.rerun()
+
     st.markdown("## ⚙️ 設定")
     st.markdown("---")
     st.markdown("### 📥 データエクスポート")
     df_export = generate_health_data()
-    csv_buf = io.StringIO()
-    df_export.to_csv(csv_buf, index=False, encoding="utf-8-sig")
-    st.download_button(
-        "📊 シミュレーションデータをCSV",
-        data=csv_buf.getvalue().encode("utf-8-sig"),
-        file_name="health_longevity_data.csv",
-        mime="text/csv",
-        use_container_width=True,
-    )
+    if CURRENT_PLAN == "pro":
+        csv_buf = io.StringIO()
+        df_export.to_csv(csv_buf, index=False, encoding="utf-8-sig")
+        st.download_button(
+            "📊 シミュレーションデータをCSV",
+            data=csv_buf.getvalue().encode("utf-8-sig"),
+            file_name="health_longevity_data.csv",
+            mime="text/csv",
+            use_container_width=True,
+        )
+    else:
+        st.button("📊 CSVエクスポート（🔒 プロプラン）", disabled=True, use_container_width=True)
     st.markdown("---")
     st.markdown("### 📄 主要データソース")
     st.info(
@@ -338,6 +563,9 @@ with tab1:
 # TAB 2: 生存曲線比較
 # ══════════════════════════════════════════════════════════════════════════════
 with tab2:
+  if CURRENT_PLAN != "pro":
+    locked_tab("生存曲線グループ比較")
+  else:
     st.markdown("## 📈 リスク因子別 カプランマイヤー生存曲線")
     st.markdown("リスク因子ごとにグループを分け、**健康を維持できる確率の推移**を比較します。")
 
@@ -439,6 +667,9 @@ with tab2:
 # TAB 3: コックス回帰分析
 # ══════════════════════════════════════════════════════════════════════════════
 with tab3:
+  if CURRENT_PLAN != "pro":
+    locked_tab("コックス回帰分析（多変量）")
+  else:
     st.markdown("## 🧬 コックス比例ハザードモデル")
     st.markdown("8大リスク因子を同時投入し、**他因子を調整した上での独立した影響**を定量化します。")
 
@@ -522,6 +753,9 @@ with tab3:
 # TAB 4: あなたの健康寿命予測
 # ══════════════════════════════════════════════════════════════════════════════
 with tab4:
+  if CURRENT_PLAN != "pro":
+    locked_tab("あなたの個人健康寿命予測")
+  else:
     st.markdown("## 🎯 あなたの健康寿命を予測する")
     st.markdown("現在の生活習慣・健康状態を入力して、コックス回帰モデルによる**個人化された生存曲線**を確認しましょう。")
 
@@ -673,6 +907,9 @@ with tab4:
 # TAB 5: 解析手法の詳細
 # ══════════════════════════════════════════════════════════════════════════════
 with tab5:
+  if CURRENT_PLAN != "pro":
+    locked_tab("解析手法の数理的詳細")
+  else:
     st.markdown("## 🔬 解析手法の詳細")
     st.markdown("本アプリで使用している統計解析手法の数理的背景と実装方法を解説します。")
 
