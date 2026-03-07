@@ -30,7 +30,7 @@ PLANS = {
     },
     "pro": {
         "name": "プロプラン",
-        "price": "¥980/月",
+        "price": "¥100/月",
         "tabs": [0, 1, 2, 3, 4],  # All tabs
         "features": ["無料プランの全機能", "生存曲線グループ比較 + ログランク検定",
                      "コックス回帰分析（多変量・フォレストプロット）",
@@ -141,7 +141,7 @@ def show_landing():
         <div class="pricing-card card-pro">
             <div class="badge-popular">⭐ 最もご好評</div>
             <div class="plan-name" style="color:white;">🚀 プロプラン</div>
-            <div class="plan-price" style="color:white;">¥980</div>
+            <div class="plan-price" style="color:white;">¥100</div>
             <div class="plan-period" style="color:rgba(255,255,255,0.8);">/ 月（税込）</div>
             <hr style="border-color:rgba(255,255,255,0.3); margin:1rem 0;">
             <div class="feature-item" style="color:white;">✅ 無料プランの全機能</div>
