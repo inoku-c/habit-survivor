@@ -49,6 +49,25 @@ streamlit run app.py
 
 ---
 
+## Railway デプロイ設定
+
+### 環境変数（Railway Variables）
+
+| 変数名 | 説明 | 例 |
+|---|---|---|
+| `payment_link` | 決済ページURL（GumroadなどのリンクをRailwayの環境変数に設定） | `https://yourname.gumroad.com/l/xxxxx` |
+| `access_codes` | プロプランのアクセスコード（カンマ区切り） | `CODE001,CODE002,CODE003` |
+
+### Gumroadでの設定手順
+
+1. [gumroad.com](https://gumroad.com) でアカウント作成
+2. 「New Product」→ 「Subscription」を選択、¥100/月に設定
+3. 「License keys」を有効化（購入者に自動でコードが届く）
+4. 商品ページURLをRailwayの `payment_link` 変数に設定
+5. 購入が来たら、そのライセンスキーを `access_codes` に追加
+
+---
+
 ## ライセンス
 
 MIT

@@ -40,8 +40,8 @@ PLANS = {
     },
 }
 
-# Stripe 決済リンク（本番では実際のStripe Payment Linkに置き換え）
-STRIPE_PAYMENT_LINK = st.secrets.get("stripe_payment_link", "https://buy.stripe.com/your_link_here")
+# 決済リンク（Gumroad / LemonSqueezy / 任意のサービスのURLをsecretsに設定）
+PAYMENT_LINK = st.secrets.get("payment_link", "https://your-payment-link-here")
 
 def _valid_codes() -> set:
     """st.secrets からアクセスコードを取得（なければデモ用コードを使用）"""
@@ -153,8 +153,8 @@ def show_landing():
         </div>
         """, unsafe_allow_html=True)
         st.link_button(
-            "💳 今すぐ購入（Stripe）",
-            url=STRIPE_PAYMENT_LINK,
+            "💳 今すぐ購入（¥100/月）",
+            url=PAYMENT_LINK,
             use_container_width=True,
         )
 
