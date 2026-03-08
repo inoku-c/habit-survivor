@@ -13,6 +13,7 @@ from lifelines import KaplanMeierFitter, CoxPHFitter
 from lifelines.statistics import logrank_test
 import warnings
 warnings.filterwarnings("ignore")
+from premium import check_premium, show_sidebar_auth, show_upgrade_banner
 
 st.set_page_config(page_title="習慣サバイバー", page_icon="⚰️", layout="wide")
 
@@ -117,12 +118,17 @@ with st.sidebar:
     st.markdown("---")
     st.markdown("### 🔬 使用手法")
     st.markdown("- カプランマイヤー法\n- ログランク検定\n- コックス比例ハザード回帰")
+    show_sidebar_auth()
 
 df = generate_demo_data()
 
 # ─── データ入力モード ─────────────────────────
 if tab_mode == "✏️ 自分のデータを入力":
-    st.markdown("## ✏️ あなたの習慣データを入力")
+    if not check_premium():
+        show_upgrade_banner("自分のデータで分析")
+        df = generate_demo_data()
+    else:
+        st.markdown("## ✏️ あなたの習慣データを入力")
     c1, c2, c3 = st.columns(3)
     with c1:
         habit_name  = st.text_input("習慣名", "毎日筋トレ 💪")
@@ -298,7 +304,10 @@ with tab2:
 # ══════════════════════════════
 with tab3:
     st.markdown("## 🔬 ログランク検定")
-    st.markdown("2つの習慣の「寿命」に統計的に有意な差があるかを検定します。")
+    if not check_premium():
+        show_upgrade_banner("ログランク検定（2習慣比較）")
+    else:
+        st.markdown("2つの習慣の「寿命」に統計的に有意な差があるかを検定します。"
 
     c_a, c_b = st.columns(2)
     with c_a: habit_a = st.selectbox("習慣A", df["習慣"].unique(), index=0)
@@ -354,7 +363,10 @@ with tab3:
 # ══════════════════════════════
 with tab4:
     st.markdown("## 🧬 コックス比例ハザードモデル")
-    st.markdown("論文の5大因子をすべて投入し、脱落リスクへの寄与を定量化します。")
+    if not check_premium():
+        show_upgrade_banner("Cox比例ハザード回帰（フォレストプロット）")
+    else:
+        st.markdown("論文の5大因子をすべて投入し、脱落リスクへの寄与を定量化します。"
 
     cox_df = df.copy()
     cox_df["外発的動機"]       = (cox_df["動機"] == "外発的").astype(int)
@@ -499,8 +511,13 @@ with tab5:
     )
     st.plotly_chart(fig4, use_container_width=True)
 
-    # リスク診断
-    risk_score = 0
+    st.markdown("---")
+    st.markdown("### 🔍 詳細リスク診断・改善アドバイス")
+    if not check_premium():
+        show_upgrade_banner("詳細リスク診断 & 改善アドバイス")
+    else:
+        # リスク診断
+        risk_score = 0
     risk_msgs = []
     if "外発的" in pred_motiv:
         risk_score += 2; risk_msgs.append(("⚠️", "外発的動機", "自己選択の習慣は37%有利（Singh 2024）"))
