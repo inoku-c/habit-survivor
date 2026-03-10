@@ -14,16 +14,7 @@ from lifelines.statistics import logrank_test
 import warnings
 import io
 import hashlib
-import os
-import streamlit.components.v1 as _stcomponents
 warnings.filterwarnings("ignore")
-
-# ─── PAY.JP カスタムコンポーネント（declare_component）────────────────────────
-_COMPONENT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "payjp_component")
-_payjp_checkout_component = _stcomponents.declare_component(
-    "payjp_checkout",
-    path=_COMPONENT_DIR,
-)
 
 st.set_page_config(page_title="健康寿命サバイバー", page_icon="🩺", layout="wide")
 
@@ -32,61 +23,23 @@ PLANS = {
     "free": {
         "name": "無料プラン",
         "price": "¥0",
-        "tabs": [0],          # Tab index: 0=evidence only
-        "features": ["疫学エビデンス閲覧", "日本・国際統計グラフ", "8大リスク因子の解説"],
-        "locked":   ["生存曲線グループ比較", "コックス回帰分析（多変量）",
-                     "あなたの個人健康寿命予測", "解析手法の数理的詳細", "CSVエクスポート"],
+        "tabs": [0, 1],       # 0=個人予測, 1=疫学エビデンス
+        "features": ["あなたの健康寿命を予測", "疫学エビデンス閲覧", "日本・国際統計グラフ", "8大リスク因子の解説"],
+        "locked":   ["生存曲線グループ比較", "コックス回帰分析（多変量）", "解析手法の数理的詳細", "CSVエクスポート"],
     },
     "pro": {
-        "name": "プロプラン",
-        "price": "¥100/月",
+        "name": "サポータープラン",
+        "price": "Buy Me a Coffee",
         "tabs": [0, 1, 2, 3, 4],  # All tabs
         "features": ["無料プランの全機能", "生存曲線グループ比較 + ログランク検定",
                      "コックス回帰分析（多変量・フォレストプロット）",
-                     "個人健康寿命予測（コックスモデル）",
                      "解析手法の数理的詳細（LaTeX数式）", "CSVデータエクスポート"],
         "locked":   [],
     },
 }
 
-# 決済リンク（フォールバック用：PAY.JPが未設定の場合に使用）
-PAYMENT_LINK = st.secrets.get("payment_link", "https://your-payment-link-here")
-
-# ─── PAY.JP 設定 ──────────────────────────────────────────────────────────────
-try:
-    import payjp as _payjp_lib
-    _PAYJP_IMPORTABLE = True
-except ImportError:
-    _PAYJP_IMPORTABLE = False
-
-PAYJP_PUBLIC_KEY = st.secrets.get("payjp_public_key", "")
-PAYJP_SECRET_KEY = st.secrets.get("payjp_secret_key", "")
-PAYJP_PLAN_ID    = st.secrets.get("payjp_plan_id", "")
-PAYJP_ENABLED    = _PAYJP_IMPORTABLE and bool(PAYJP_PUBLIC_KEY) and bool(PAYJP_SECRET_KEY)
-
-def _payjp():
-    import payjp
-    payjp.api_key = PAYJP_SECRET_KEY
-    return payjp
-
-def create_payjp_subscription(token_id: str) -> str:
-    """カードトークンからカスタマー＆サブスクリプションを作成し customer_id を返す"""
-    pj = _payjp()
-    customer = pj.Customer.create(card=token_id)
-    if PAYJP_PLAN_ID:
-        pj.Subscription.create(customer=customer.id, plan=PAYJP_PLAN_ID)
-    return customer.id
-
-def has_active_payjp_subscription(customer_id: str) -> bool:
-    """customer_id のアクティブなサブスクリプションを確認"""
-    if not customer_id.startswith("cus_"):
-        return False
-    try:
-        pj = _payjp()
-        subs = pj.Subscription.all(customer=customer_id, status="active", limit=1)
-        return len(subs.data) > 0
-    except Exception:
-        return False
+# Buy Me a Coffee リンク（secrets で上書き可）
+PAYMENT_LINK = st.secrets.get("payment_link", "https://buymeacoffee.com/your-username")
 
 def _valid_codes() -> set:
     """st.secrets からアクセスコードを取得（なければデモ用コードを使用）"""
@@ -99,12 +52,7 @@ def _valid_codes() -> set:
         return {"HEALTH2024PRO", "DEMO_PRO"}   # デモ用（本番では secrets で管理）
 
 def verify_access_code(code: str) -> bool:
-    code = code.strip()
-    # PAY.JP customer_id による検証（cus_ で始まるコード）
-    if PAYJP_ENABLED and code.startswith("cus_"):
-        return has_active_payjp_subscription(code)
-    # 静的アクセスコードによる検証
-    return code.upper() in _valid_codes()
+    return code.strip().upper() in _valid_codes()
 
 # ─── ランディング / 料金ページ ────────────────────────────────────────────────
 def show_landing():
@@ -173,12 +121,12 @@ def show_landing():
             <div class="plan-price">¥0</div>
             <div class="plan-period">永久無料</div>
             <hr style="border-color:#e2e8f0; margin:1rem 0;">
+            <div class="feature-item">✅ あなたの健康寿命を予測</div>
             <div class="feature-item">✅ 疫学エビデンス閲覧</div>
             <div class="feature-item">✅ 日本・国際健康寿命統計</div>
             <div class="feature-item">✅ 8大リスク因子の解説</div>
             <div class="feature-item" style="color:#aaa;">🔒 生存曲線グループ比較</div>
             <div class="feature-item" style="color:#aaa;">🔒 コックス回帰分析</div>
-            <div class="feature-item" style="color:#aaa;">🔒 個人健康寿命予測</div>
             <div class="feature-item" style="color:#aaa;">🔒 解析手法の詳細</div>
         </div>
         """, unsafe_allow_html=True)
@@ -189,38 +137,23 @@ def show_landing():
     with col_pro:
         st.markdown("""
         <div class="pricing-card card-pro">
-            <div class="badge-popular">⭐ 最もご好評</div>
-            <div class="plan-name" style="color:white;">🚀 プロプラン</div>
-            <div class="plan-price" style="color:white;">¥100</div>
-            <div class="plan-period" style="color:rgba(255,255,255,0.8);">/ 月（税込）</div>
+            <div class="badge-popular">☕ サポーター限定</div>
+            <div class="plan-name" style="color:white;">🚀 サポータープラン</div>
+            <div class="plan-price" style="color:white; font-size:1.8rem;">Buy Me a Coffee</div>
+            <div class="plan-period" style="color:rgba(255,255,255,0.8);">任意の金額で応援</div>
             <hr style="border-color:rgba(255,255,255,0.3); margin:1rem 0;">
             <div class="feature-item" style="color:white;">✅ 無料プランの全機能</div>
             <div class="feature-item" style="color:white;">✅ 生存曲線グループ比較</div>
             <div class="feature-item" style="color:white;">✅ コックス回帰分析（多変量）</div>
-            <div class="feature-item" style="color:white;">✅ 個人健康寿命予測</div>
             <div class="feature-item" style="color:white;">✅ 解析手法の数理的詳細</div>
             <div class="feature-item" style="color:white;">✅ CSVデータエクスポート</div>
         </div>
         """, unsafe_allow_html=True)
-        if PAYJP_ENABLED:
-            # PAY.JP カスタムコンポーネント（payjp.js v2 Elements / トークンはURLに露出しない）
-            token_id = _payjp_checkout_component(public_key=PAYJP_PUBLIC_KEY, default=None)
-            if token_id and token_id != st.session_state.get("_payjp_last_token"):
-                st.session_state["_payjp_last_token"] = token_id
-                with st.spinner("💳 決済処理中..."):
-                    try:
-                        customer_id = create_payjp_subscription(token_id)
-                        st.session_state["plan"] = "pro"
-                        st.session_state["code"] = customer_id
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"❌ 決済エラー: {e}")
-        else:
-            st.link_button(
-                "💳 今すぐ購入（¥100/月）",
-                url=PAYMENT_LINK,
-                use_container_width=True,
-            )
+        st.link_button(
+            "☕ Buy Me a Coffee でサポート",
+            url=PAYMENT_LINK,
+            use_container_width=True,
+        )
 
     st.markdown("<hr class='divider'>", unsafe_allow_html=True)
 
@@ -243,20 +176,12 @@ def show_landing():
             else:
                 st.error("❌ アクセスコードが正しくありません。")
 
-    if PAYJP_ENABLED:
-        st.markdown("""
-        <div style="text-align:center;color:#aaa;font-size:0.8rem;margin-top:2rem;">
-            PAY.JPで決済後に表示された <b>カスタマーID（cus_xxxx）</b> を入力してください。<br>
-            お問い合わせ：support@example.com
-        </div>
-        """, unsafe_allow_html=True)
-    else:
-        st.markdown("""
-        <div style="text-align:center;color:#aaa;font-size:0.8rem;margin-top:2rem;">
-            購入後にメールで送付されるアクセスコードを入力してください。<br>
-            お問い合わせ：support@example.com
-        </div>
-        """, unsafe_allow_html=True)
+    st.markdown("""
+    <div style="text-align:center;color:#aaa;font-size:0.8rem;margin-top:2rem;">
+        Buy Me a Coffee でサポート後にお送りするアクセスコードを入力してください。<br>
+        お問い合わせ：support@example.com
+    </div>
+    """, unsafe_allow_html=True)
 
 # ─── 認証チェック ─────────────────────────────────────────────────────────────
 if "plan" not in st.session_state:
@@ -558,18 +483,18 @@ df = generate_health_data()
 cph, cox_features = fit_cox_model()
 
 # ─── タブ ─────────────────────────────────────────────────────────────────────
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
+tab_pred, tab_ev, tab_km, tab_cox, tab_meth = st.tabs([
+    "🎯 あなたの健康寿命予測",
     "📊 疫学エビデンス",
     "📈 生存曲線比較",
     "🧬 コックス回帰分析",
-    "🎯 あなたの健康寿命予測",
     "🔬 解析手法の詳細",
 ])
 
 # ══════════════════════════════════════════════════════════════════════════════
-# TAB 1: 疫学エビデンス
+# TAB: 疫学エビデンス
 # ══════════════════════════════════════════════════════════════════════════════
-with tab1:
+with tab_ev:
     st.markdown("## 📊 日本の健康寿命 — 最新統計")
 
     c1, c2, c3, c4 = st.columns(4)
@@ -632,9 +557,9 @@ with tab1:
         '</div>', unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
-# TAB 2: 生存曲線比較
+# TAB: 生存曲線比較
 # ══════════════════════════════════════════════════════════════════════════════
-with tab2:
+with tab_km:
   if CURRENT_PLAN != "pro":
     locked_tab("生存曲線グループ比較")
   else:
@@ -736,9 +661,9 @@ with tab2:
         '縦軸50%の位置での横軸の値が中央健康期間（半数が健康を終える年数）です。</div>', unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
-# TAB 3: コックス回帰分析
+# TAB: コックス回帰分析
 # ══════════════════════════════════════════════════════════════════════════════
-with tab3:
+with tab_cox:
   if CURRENT_PLAN != "pro":
     locked_tab("コックス回帰分析（多変量）")
   else:
@@ -822,12 +747,9 @@ with tab3:
         '</div>', unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
-# TAB 4: あなたの健康寿命予測
+# TAB: あなたの健康寿命予測（無料）
 # ══════════════════════════════════════════════════════════════════════════════
-with tab4:
-  if CURRENT_PLAN != "pro":
-    locked_tab("あなたの個人健康寿命予測")
-  else:
+with tab_pred:
     st.markdown("## 🎯 あなたの健康寿命を予測する")
     st.markdown("現在の生活習慣・健康状態を入力して、コックス回帰モデルによる**個人化された生存曲線**を確認しましょう。")
 
@@ -976,9 +898,9 @@ with tab4:
         '</div>', unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
-# TAB 5: 解析手法の詳細
+# TAB: 解析手法の詳細
 # ══════════════════════════════════════════════════════════════════════════════
-with tab5:
+with tab_meth:
   if CURRENT_PLAN != "pro":
     locked_tab("解析手法の数理的詳細")
   else:

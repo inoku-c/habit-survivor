@@ -6,4 +6,3 @@ lifelines>=0.27.0
 autograd>=1.6.2
 formulaic>=0.6.0
 matplotlib>=3.7.0
-payjp>=1.0.0
