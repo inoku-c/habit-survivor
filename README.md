@@ -1,6 +1,6 @@
-# ⚰️ 習慣サバイバー (Habit Survivor)
+# 🩺 健康寿命サバイバー (Health Longevity Survivor)
 
-生存分析で「習慣の寿命」を予測するWebアプリ。
+生存分析 × 疫学エビデンスで「あなたの健康寿命」を科学的に予測するWebアプリ。
 
 [![Streamlit App](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://share.streamlit.io)
 
@@ -8,24 +8,35 @@
 
 ## 概要
 
-あなたの習慣は何日続くのか？生物統計学の手法を使って科学的に予測します。
+あなたは何歳まで健康でいられるか？コックス比例ハザードモデルと厚生労働省データに基づき、個人の健康寿命を予測します。
 
 **使用手法：**
 - カプランマイヤー生存曲線
 - ログランク検定
 - コックス比例ハザードモデル
 
-**論文エビデンス：**
-> Singh B, et al. Time to Form a Habit: A Systematic Review and Meta-Analysis.
-> *Healthcare (Basel).* 2024;12(23):2488. doi: 10.3390/healthcare12232488
+**論文・データソース：**
+- 厚生労働省 令和元年(2019) 健康寿命の算定データ
+- WHO Global Health Observatory（2019）
+- JPHC Study（日本公衆衛生センターコホート研究）
+- JAGES研究
+
+---
+
+## 機能
+
+| プラン | 機能 |
+|---|---|
+| 🌱 無料 | **あなたの健康寿命予測**、疫学エビデンス、日本・国際統計、8大リスク因子解説 |
+| ☕ サポーター | 上記 + 生存曲線グループ比較、コックス回帰分析、解析手法の詳細、CSVエクスポート |
 
 ---
 
 ## スクリーンショット
 
-| 論文エビデンス | KM生存曲線 | コックス回帰 |
+| 健康寿命予測 | 疫学エビデンス | 生存曲線比較 |
 |---|---|---|
-| 21日神話を破壊 | 習慣ごとの継続率 | 脱落リスク因子 |
+| コックスモデルで個人予測 | 8大リスク因子 | グループ別KM曲線 |
 
 ---
 
@@ -49,31 +60,23 @@ streamlit run app.py
 
 ---
 
-## Railway デプロイ設定
+## デプロイ設定（Streamlit Community Cloud / Railway）
 
-### 環境変数（Railway Variables）
+### secrets.toml（`.streamlit/secrets.toml`）
 
-| 変数名 | 説明 | 例 |
-|---|---|---|
-| `payjp_public_key` | PAY.JP 公開キー | `pk_live_xxxxxxxxxxxx` |
-| `payjp_secret_key` | PAY.JP 秘密キー | `sk_live_xxxxxxxxxxxx` |
-| `payjp_plan_id` | PAY.JP サブスクリプションプランID | `pln_xxxxxxxxxxxx` |
+```toml
+# サポーター向けアクセスコード（カンマ区切り）
+access_codes = "CODE1,CODE2"
 
-### PAY.JP での設定手順
+# Buy Me a Coffee リンク
+payment_link = "https://buymeacoffee.com/your-username"
+```
 
-1. [pay.jp](https://pay.jp) でアカウント作成・本人確認
-2. ダッシュボード → 「API」から公開キー・秘密キーを取得
-3. ダッシュボード → 「プラン」→ 「プランを作成」で ¥100/月のプランを作成しプランIDを取得
-4. 上記3つをRailwayの環境変数に設定
+### サポーターフロー
 
-### 決済フロー（ユーザー視点）
-
-1. ユーザーが「クレジットカードで支払う」ボタンをクリック
-2. PAY.JP のカード入力ポップアップが表示される
-3. カード情報入力・支払い完了 → 自動でプロプランが有効化
-4. 次回アクセス時は **カスタマーID（`cus_xxxx`）** を「アクセスコード」として入力してログイン
-
-> **テスト用カード番号**: `4242 4242 4242 4242`（PAY.JPテストモード）
+1. ユーザーが「☕ Buy Me a Coffee でサポート」ボタンからサポート
+2. 支援完了後、管理者がアクセスコードをメールで送付
+3. ランディングページでアクセスコードを入力 → サポータープラン有効化
 
 ---
 
