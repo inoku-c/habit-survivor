@@ -55,16 +55,25 @@ streamlit run app.py
 
 | 変数名 | 説明 | 例 |
 |---|---|---|
-| `payment_link` | 決済ページURL（GumroadなどのリンクをRailwayの環境変数に設定） | `https://yourname.gumroad.com/l/xxxxx` |
-| `access_codes` | プロプランのアクセスコード（カンマ区切り） | `CODE001,CODE002,CODE003` |
+| `payjp_public_key` | PAY.JP 公開キー | `pk_live_xxxxxxxxxxxx` |
+| `payjp_secret_key` | PAY.JP 秘密キー | `sk_live_xxxxxxxxxxxx` |
+| `payjp_plan_id` | PAY.JP サブスクリプションプランID | `pln_xxxxxxxxxxxx` |
 
-### Gumroadでの設定手順
+### PAY.JP での設定手順
 
-1. [gumroad.com](https://gumroad.com) でアカウント作成
-2. 「New Product」→ 「Subscription」を選択、¥100/月に設定
-3. 「License keys」を有効化（購入者に自動でコードが届く）
-4. 商品ページURLをRailwayの `payment_link` 変数に設定
-5. 購入が来たら、そのライセンスキーを `access_codes` に追加
+1. [pay.jp](https://pay.jp) でアカウント作成・本人確認
+2. ダッシュボード → 「API」から公開キー・秘密キーを取得
+3. ダッシュボード → 「プラン」→ 「プランを作成」で ¥100/月のプランを作成しプランIDを取得
+4. 上記3つをRailwayの環境変数に設定
+
+### 決済フロー（ユーザー視点）
+
+1. ユーザーが「クレジットカードで支払う」ボタンをクリック
+2. PAY.JP のカード入力ポップアップが表示される
+3. カード情報入力・支払い完了 → 自動でプロプランが有効化
+4. 次回アクセス時は **カスタマーID（`cus_xxxx`）** を「アクセスコード」として入力してログイン
+
+> **テスト用カード番号**: `4242 4242 4242 4242`（PAY.JPテストモード）
 
 ---
 

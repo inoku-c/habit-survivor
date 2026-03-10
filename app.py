@@ -40,8 +40,44 @@ PLANS = {
     },
 }
 
-# 決済リンク（Gumroad / LemonSqueezy / 任意のサービスのURLをsecretsに設定）
+# 決済リンク（フォールバック用：PAY.JPが未設定の場合に使用）
 PAYMENT_LINK = st.secrets.get("payment_link", "https://your-payment-link-here")
+
+# ─── PAY.JP 設定 ──────────────────────────────────────────────────────────────
+try:
+    import payjp as _payjp_lib
+    _PAYJP_IMPORTABLE = True
+except ImportError:
+    _PAYJP_IMPORTABLE = False
+
+PAYJP_PUBLIC_KEY = st.secrets.get("payjp_public_key", "")
+PAYJP_SECRET_KEY = st.secrets.get("payjp_secret_key", "")
+PAYJP_PLAN_ID    = st.secrets.get("payjp_plan_id", "")
+PAYJP_ENABLED    = _PAYJP_IMPORTABLE and bool(PAYJP_PUBLIC_KEY) and bool(PAYJP_SECRET_KEY)
+
+def _payjp():
+    import payjp
+    payjp.api_key = PAYJP_SECRET_KEY
+    return payjp
+
+def create_payjp_subscription(token_id: str) -> str:
+    """カードトークンからカスタマー＆サブスクリプションを作成し customer_id を返す"""
+    pj = _payjp()
+    customer = pj.Customer.create(card=token_id)
+    if PAYJP_PLAN_ID:
+        pj.Subscription.create(customer=customer.id, plan=PAYJP_PLAN_ID)
+    return customer.id
+
+def has_active_payjp_subscription(customer_id: str) -> bool:
+    """customer_id のアクティブなサブスクリプションを確認"""
+    if not customer_id.startswith("cus_"):
+        return False
+    try:
+        pj = _payjp()
+        subs = pj.Subscription.all(customer=customer_id, status="active", limit=1)
+        return len(subs.data) > 0
+    except Exception:
+        return False
 
 def _valid_codes() -> set:
     """st.secrets からアクセスコードを取得（なければデモ用コードを使用）"""
@@ -54,7 +90,12 @@ def _valid_codes() -> set:
         return {"HEALTH2024PRO", "DEMO_PRO"}   # デモ用（本番では secrets で管理）
 
 def verify_access_code(code: str) -> bool:
-    return code.strip().upper() in _valid_codes()
+    code = code.strip()
+    # PAY.JP customer_id による検証（cus_ で始まるコード）
+    if PAYJP_ENABLED and code.startswith("cus_"):
+        return has_active_payjp_subscription(code)
+    # 静的アクセスコードによる検証
+    return code.upper() in _valid_codes()
 
 # ─── ランディング / 料金ページ ────────────────────────────────────────────────
 def show_landing():
@@ -152,11 +193,41 @@ def show_landing():
             <div class="feature-item" style="color:white;">✅ CSVデータエクスポート</div>
         </div>
         """, unsafe_allow_html=True)
-        st.link_button(
-            "💳 今すぐ購入（¥100/月）",
-            url=PAYMENT_LINK,
-            use_container_width=True,
-        )
+        if PAYJP_ENABLED:
+            # PAY.JP チェックアウトフォーム（checkout.js によるカード入力ポップアップ）
+            import streamlit.components.v1 as components
+            checkout_html = f"""
+            <script type="text/javascript" src="https://checkout.pay.jp/"></script>
+            <form action="" method="post" id="payjp-form" style="text-align:center; margin:0;">
+                <script
+                    class="payjp-button"
+                    data-key="{PAYJP_PUBLIC_KEY}"
+                    data-text="💳 クレジットカードで支払う"
+                    data-submit-text="支払い完了・プロプランを有効化"
+                    data-name="健康寿命サバイバー"
+                    data-description="プロプラン ¥100/月"
+                    data-amount="100"
+                    data-currency="jpy"
+                    data-lang="ja"
+                ></script>
+            </form>
+            <script>
+                document.getElementById('payjp-form').addEventListener('submit', function(e) {{
+                    e.preventDefault();
+                    var tokenInput = document.querySelector('input[name="payjp-token"]');
+                    if (tokenInput && tokenInput.value) {{
+                        window.top.location.href = '?payjp_token=' + encodeURIComponent(tokenInput.value);
+                    }}
+                }});
+            </script>
+            """
+            components.html(checkout_html, height=60)
+        else:
+            st.link_button(
+                "💳 今すぐ購入（¥100/月）",
+                url=PAYMENT_LINK,
+                use_container_width=True,
+            )
 
     st.markdown("<hr class='divider'>", unsafe_allow_html=True)
 
@@ -179,12 +250,34 @@ def show_landing():
             else:
                 st.error("❌ アクセスコードが正しくありません。")
 
-    st.markdown("""
-    <div style="text-align:center;color:#aaa;font-size:0.8rem;margin-top:2rem;">
-        購入後にメールで送付されるアクセスコードを入力してください。<br>
-        お問い合わせ：support@example.com
-    </div>
-    """, unsafe_allow_html=True)
+    if PAYJP_ENABLED:
+        st.markdown("""
+        <div style="text-align:center;color:#aaa;font-size:0.8rem;margin-top:2rem;">
+            PAY.JPで決済後に表示された <b>カスタマーID（cus_xxxx）</b> を入力してください。<br>
+            お問い合わせ：support@example.com
+        </div>
+        """, unsafe_allow_html=True)
+    else:
+        st.markdown("""
+        <div style="text-align:center;color:#aaa;font-size:0.8rem;margin-top:2rem;">
+            購入後にメールで送付されるアクセスコードを入力してください。<br>
+            お問い合わせ：support@example.com
+        </div>
+        """, unsafe_allow_html=True)
+
+# ─── PAY.JP 決済コールバック処理 ──────────────────────────────────────────────
+# checkout.js がカードトークンを ?payjp_token=tok_xxx として返す
+if "payjp_token" in st.query_params and "plan" not in st.session_state:
+    token_id = st.query_params["payjp_token"]
+    st.query_params.clear()
+    with st.spinner("💳 決済処理中..."):
+        try:
+            customer_id = create_payjp_subscription(token_id)
+            st.session_state["plan"] = "pro"
+            st.session_state["code"] = customer_id
+            st.rerun()
+        except Exception as e:
+            st.error(f"❌ 決済エラー: {e}")
 
 # ─── 認証チェック ─────────────────────────────────────────────────────────────
 if "plan" not in st.session_state:
