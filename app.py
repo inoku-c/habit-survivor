@@ -14,7 +14,16 @@ from lifelines.statistics import logrank_test
 import warnings
 import io
 import hashlib
+import os
+import streamlit.components.v1 as _stcomponents
 warnings.filterwarnings("ignore")
+
+# ─── PAY.JP カスタムコンポーネント（declare_component）────────────────────────
+_COMPONENT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "payjp_component")
+_payjp_checkout_component = _stcomponents.declare_component(
+    "payjp_checkout",
+    path=_COMPONENT_DIR,
+)
 
 st.set_page_config(page_title="健康寿命サバイバー", page_icon="🩺", layout="wide")
 
@@ -194,34 +203,18 @@ def show_landing():
         </div>
         """, unsafe_allow_html=True)
         if PAYJP_ENABLED:
-            # PAY.JP チェックアウトフォーム（checkout.js によるカード入力ポップアップ）
-            import streamlit.components.v1 as components
-            checkout_html = f"""
-            <script type="text/javascript" src="https://checkout.pay.jp/"></script>
-            <form action="" method="post" id="payjp-form" style="text-align:center; margin:0;">
-                <script
-                    class="payjp-button"
-                    data-key="{PAYJP_PUBLIC_KEY}"
-                    data-text="💳 クレジットカードで支払う"
-                    data-submit-text="支払い完了・プロプランを有効化"
-                    data-name="健康寿命サバイバー"
-                    data-description="プロプラン ¥100/月"
-                    data-amount="100"
-                    data-currency="jpy"
-                    data-lang="ja"
-                ></script>
-            </form>
-            <script>
-                document.getElementById('payjp-form').addEventListener('submit', function(e) {{
-                    e.preventDefault();
-                    var tokenInput = document.querySelector('input[name="payjp-token"]');
-                    if (tokenInput && tokenInput.value) {{
-                        window.top.location.href = '?payjp_token=' + encodeURIComponent(tokenInput.value);
-                    }}
-                }});
-            </script>
-            """
-            components.html(checkout_html, height=60)
+            # PAY.JP カスタムコンポーネント（payjp.js v2 Elements / トークンはURLに露出しない）
+            token_id = _payjp_checkout_component(public_key=PAYJP_PUBLIC_KEY, default=None)
+            if token_id and token_id != st.session_state.get("_payjp_last_token"):
+                st.session_state["_payjp_last_token"] = token_id
+                with st.spinner("💳 決済処理中..."):
+                    try:
+                        customer_id = create_payjp_subscription(token_id)
+                        st.session_state["plan"] = "pro"
+                        st.session_state["code"] = customer_id
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"❌ 決済エラー: {e}")
         else:
             st.link_button(
                 "💳 今すぐ購入（¥100/月）",
@@ -264,20 +257,6 @@ def show_landing():
             お問い合わせ：support@example.com
         </div>
         """, unsafe_allow_html=True)
-
-# ─── PAY.JP 決済コールバック処理 ──────────────────────────────────────────────
-# checkout.js がカードトークンを ?payjp_token=tok_xxx として返す
-if "payjp_token" in st.query_params and "plan" not in st.session_state:
-    token_id = st.query_params["payjp_token"]
-    st.query_params.clear()
-    with st.spinner("💳 決済処理中..."):
-        try:
-            customer_id = create_payjp_subscription(token_id)
-            st.session_state["plan"] = "pro"
-            st.session_state["code"] = customer_id
-            st.rerun()
-        except Exception as e:
-            st.error(f"❌ 決済エラー: {e}")
 
 # ─── 認証チェック ─────────────────────────────────────────────────────────────
 if "plan" not in st.session_state:
